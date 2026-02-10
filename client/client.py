@@ -1,11 +1,12 @@
-import socket, requests, time, ipaddress
-import pexpect
+import socket, requests, time, ipaddress, subprocess
 
 PORT = 5000
-INTERVAL = 10
-
+INTERVAL = 5  # cek status server
 hostname = socket.gethostname()
+status_on = "OFF"
+server_ip = None
 
+# ===== GET LOCAL IP =====
 def get_my_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.connect(("8.8.8.8", 80))
@@ -16,21 +17,14 @@ def get_my_ip():
 my_ip = get_my_ip()
 subnet = ipaddress.ip_network(my_ip + "/24", strict=False)
 
-server_ip = None
-registered = False
-last_status = None
-sudo_user = None
-sudo_pass = None
-
-# --------------------
-# Scan server
-# --------------------
+# ===== SCAN SERVER =====
 def scan_server():
     global server_ip
     for ip in subnet:
         try:
-            r = requests.get(f"http://{ip}:{PORT}/ping", timeout=0.5)
-            if r.ok and r.json().get("server") == "nyilsrv-server":
+            url = f"http://{ip}:{PORT}/register"
+            r = requests.post(url, json={"hostname":hostname,"ip":my_ip}, timeout=0.4)
+            if r.ok:
                 server_ip = str(ip)
                 print("[FOUND SERVER]", server_ip)
                 return True
@@ -38,73 +32,35 @@ def scan_server():
             pass
     return False
 
-# --------------------
-# Register
-# --------------------
-def register():
-    global registered
-    try:
-        r = requests.post(f"http://{server_ip}:{PORT}/register",
-                          json={"hostname": hostname, "ip": my_ip}, timeout=2)
-        if r.ok:
-            registered = True
-            print("[REGISTERED]")
-    except Exception as e:
-        print("[REGISTER ERROR]", e)
-
-# --------------------
-# Heartbeat
-# --------------------
+# ===== HEARTBEAT =====
 def heartbeat():
     try:
-        requests.post(f"http://{server_ip}:{PORT}/heartbeat", json={"hostname": hostname}, timeout=2)
+        if server_ip:
+            requests.post(f"http://{server_ip}:{PORT}/heartbeat", json={"hostname":hostname}, timeout=2)
     except:
         pass
 
-# --------------------
-# Get Status from server
-# --------------------
-def get_status():
-    global sudo_user, sudo_pass
+# ===== UPDATE STATUS =====
+def update_status():
+    global status_on
     try:
-        r = requests.get(f"http://{server_ip}:{PORT}/client_status/{hostname}", timeout=2)
-        if r.ok:
-            data = r.json()
-            sudo_user = data.get("sudo_user")
-            sudo_pass = data.get("sudo_pass")
-            return data.get("status")
-    except:
-        pass
-    return None
+        if server_ip:
+            r = requests.get(f"http://{server_ip}:{PORT}/status/{hostname}", timeout=2)
+            if r.ok:
+                new_status = r.json().get("status","OFF")
+                if new_status != status_on:
+                    status_on = new_status
+                    if status_on=="ON":
+                        print("[ON] Execute start commands")
+                        subprocess.run(["systemctl","start","NetworkManager.service"])
+                        subprocess.run(["sudo","systemctl","restart","earnapp.service"])
+                    else:
+                        print("[OFF] Execute stop command")
+                        subprocess.run(["sudo","systemctl","stop","earnapp.service"])
+    except Exception as e:
+        print("[ERROR STATUS]", e)
 
-# --------------------
-# Run command with sudo password
-# --------------------
-def run_sudo(cmd):
-    child = pexpect.spawn("sudo -S " + cmd, encoding="utf-8")
-    child.expect("password")
-    child.sendline(sudo_pass)
-    child.wait()
-    child.close()
-
-# --------------------
-# Apply ON/OFF
-# --------------------
-def apply_status(status):
-    global last_status
-    if status != last_status:
-        print(f"[CLIENT STATUS] {hostname} -> {status}")
-        if status == "ON":
-            # start NetworkManager
-            run_sudo("/bin/systemctl start NetworkManager.service")
-            run_sudo("systemctl restart earnapp.service")
-        elif status == "OFF":
-            run_sudo("systemctl stop earnapp.service")
-        last_status = status
-
-# --------------------
-# Main Loop
-# --------------------
+# ===== MAIN LOOP =====
 while True:
     try:
         if not server_ip:
@@ -112,20 +68,11 @@ while True:
             if not scan_server():
                 time.sleep(5)
                 continue
-
-        if not registered:
-            register()
-
         heartbeat()
-
-        status = get_status()
-        if status:
-            apply_status(status)
-
+        update_status()
         time.sleep(INTERVAL)
-
     except Exception as e:
         print("[ERROR]", e)
         server_ip = None
-        registered = False
+        status_on = "OFF"
         time.sleep(3)
