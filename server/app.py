@@ -131,27 +131,3 @@ def index():
 def auto_rotate_clients():
     while True:
         with LOCK:
-            clients = load_clients()
-            if not clients:
-                time.sleep(5)
-                continue
-            # hanya satu ON
-            on_set = False
-            for idx, c in enumerate(clients):
-                if not on_set and c.get("status")=="OFF":
-                    c["status"]="ON"
-                    on_set = True
-                else:
-                    c["status"]="OFF"
-            save_clients(clients)
-        cfg = load_config()
-        sleep_time = cfg.get("interval_seconds",1500) if cfg.get("enabled",True) else 5
-        time.sleep(sleep_time)
-
-# =====================
-# MAIN
-# =====================
-if __name__ == "__main__":
-    t = threading.Thread(target=auto_rotate_clients, daemon=True)
-    t.start()
-    app.run(host="0.0.0.0", port=5000, debug=True)
