@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 ExecStart=/opt/nyilsrv-client/venv/bin/python /opt/nyilsrv-client/client.py
 Restart=always
+RestartSec=5
 User=root
 
 [Install]
