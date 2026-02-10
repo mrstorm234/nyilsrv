@@ -186,10 +186,3 @@ Buka firewall port 5000 dan 6000
 
 Sistem berjalan full otomatis
 
-
-Kalau mau versi:
-- **lebih singkat**
-- **bahasa awam**
-- **versi Inggris**
-
-bilang saja 👍
