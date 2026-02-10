@@ -1,4 +1,5 @@
-import socket, requests, time, ipaddress, subprocess
+import socket, requests, time, ipaddress
+import pexpect
 
 PORT = 5000
 INTERVAL = 10
@@ -17,14 +18,18 @@ subnet = ipaddress.ip_network(my_ip + "/24", strict=False)
 
 server_ip = None
 registered = False
+last_status = None
+sudo_user = None
+sudo_pass = None
 
-# -------- scan server --------
+# --------------------
+# Scan server
+# --------------------
 def scan_server():
     global server_ip
     for ip in subnet:
         try:
-            url = f"http://{ip}:{PORT}/ping"
-            r = requests.get(url, timeout=0.5)
+            r = requests.get(f"http://{ip}:{PORT}/ping", timeout=0.5)
             if r.ok and r.json().get("server") == "nyilsrv-server":
                 server_ip = str(ip)
                 print("[FOUND SERVER]", server_ip)
@@ -33,54 +38,73 @@ def scan_server():
             pass
     return False
 
-# -------- register --------
+# --------------------
+# Register
+# --------------------
 def register():
     global registered
     try:
-        r = requests.post(
-            f"http://{server_ip}:{PORT}/register",
-            json={"hostname": hostname, "ip": my_ip},
-            timeout=2
-        )
+        r = requests.post(f"http://{server_ip}:{PORT}/register",
+                          json={"hostname": hostname, "ip": my_ip}, timeout=2)
         if r.ok:
             registered = True
-            print("[REGISTERED]", r.json())
+            print("[REGISTERED]")
     except Exception as e:
         print("[REGISTER ERROR]", e)
 
-# -------- heartbeat --------
+# --------------------
+# Heartbeat
+# --------------------
 def heartbeat():
     try:
-        requests.post(
-            f"http://{server_ip}:{PORT}/heartbeat",
-            json={"hostname": hostname},
-            timeout=2
-        )
+        requests.post(f"http://{server_ip}:{PORT}/heartbeat", json={"hostname": hostname}, timeout=2)
     except:
         pass
 
-# -------- get status from server --------
+# --------------------
+# Get Status from server
+# --------------------
 def get_status():
-    """Ambil status ON/OFF dari server"""
+    global sudo_user, sudo_pass
     try:
         r = requests.get(f"http://{server_ip}:{PORT}/client_status/{hostname}", timeout=2)
         if r.ok:
-            return r.json().get("status")  # "ON" atau "OFF"
+            data = r.json()
+            sudo_user = data.get("sudo_user")
+            sudo_pass = data.get("sudo_pass")
+            return data.get("status")
     except:
         pass
     return None
 
-# -------- execute commands --------
-def apply_status(status):
-    if status == "ON":
-        print("[STATUS] ON -> starting services")
-        subprocess.run(["systemctl", "start", "NetworkManager.service"])
-        subprocess.run(["sudo", "systemctl", "restart", "earnapp.service"])
-    elif status == "OFF":
-        print("[STATUS] OFF -> stopping service")
-        subprocess.run(["sudo", "systemctl", "stop", "earnapp.service"])
+# --------------------
+# Run command with sudo password
+# --------------------
+def run_sudo(cmd):
+    child = pexpect.spawn("sudo -S " + cmd, encoding="utf-8")
+    child.expect("password")
+    child.sendline(sudo_pass)
+    child.wait()
+    child.close()
 
-# -------- main loop --------
+# --------------------
+# Apply ON/OFF
+# --------------------
+def apply_status(status):
+    global last_status
+    if status != last_status:
+        print(f"[CLIENT STATUS] {hostname} -> {status}")
+        if status == "ON":
+            # start NetworkManager
+            run_sudo("/bin/systemctl start NetworkManager.service")
+            run_sudo("systemctl restart earnapp.service")
+        elif status == "OFF":
+            run_sudo("systemctl stop earnapp.service")
+        last_status = status
+
+# --------------------
+# Main Loop
+# --------------------
 while True:
     try:
         if not server_ip:
@@ -94,7 +118,6 @@ while True:
 
         heartbeat()
 
-        # cek status dari server
         status = get_status()
         if status:
             apply_status(status)
