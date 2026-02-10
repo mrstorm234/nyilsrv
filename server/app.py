@@ -1,17 +1,17 @@
 from flask import Flask, request, jsonify, render_template
 from datetime import datetime
-import json, os, threading
+import json, os, threading, time
 
 app = Flask(__name__)
 
 DATA_FILE = "clients.json"
 CONFIG_FILE = "config.json"
 LOCK = threading.Lock()
-OFFLINE_THRESHOLD = 60  # detik
+OFFLINE_THRESHOLD = 60  # detik, client dianggap OFFLINE jika ping telat
 
-# =======================
+# =====================
 # Helper JSON
-# =======================
+# =====================
 def load_clients():
     if not os.path.exists(DATA_FILE):
         return []
@@ -27,26 +27,12 @@ def save_clients(clients):
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
-        return {
-            "interval_seconds": 1500,
-            "enabled": True,
-            "rules": {},      # hostname -> ON/OFF
-            "last_switch": 0,
-            "sudo_user": "user",
-            "sudo_pass": "1"
-        }
+        return {"interval_seconds": 1500, "enabled": True, "sudo_user":"user", "sudo_pass":"1"}
     with open(CONFIG_FILE, "r") as f:
         try:
             return json.load(f)
         except json.JSONDecodeError:
-            return {
-                "interval_seconds": 1500,
-                "enabled": True,
-                "rules": {},
-                "last_switch": 0,
-                "sudo_user": "user",
-                "sudo_pass": "1"
-            }
+            return {"interval_seconds": 1500, "enabled": True, "sudo_user":"user", "sudo_pass":"1"}
 
 def save_config(cfg):
     with open(CONFIG_FILE, "w") as f:
@@ -55,16 +41,9 @@ def save_config(cfg):
 def now_ts():
     return int(datetime.utcnow().timestamp())
 
-# =======================
-# Ping
-# =======================
-@app.route("/ping")
-def ping():
-    return jsonify({"server": "nyilsrv-server"})
-
-# =======================
-# Register / Heartbeat
-# =======================
+# =====================
+# REGISTER / HEARTBEAT
+# =====================
 @app.route("/register", methods=["POST"])
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
@@ -82,14 +61,27 @@ def heartbeat():
                 found = True
                 break
         if not found:
-            clients.append({"hostname": hostname, "ip": ip, "last_seen": now_ts()})
+            clients.append({"hostname": hostname, "ip": ip, "last_seen": now_ts(), "status":"OFF"})
         save_clients(clients)
 
+    print(f"[HEARTBEAT/REGISTER] {hostname} - {ip}")
     return jsonify({"ok": 1, "msg": "heartbeat/registered"})
 
-# =======================
-# Set Interval & Sudo Credentials
-# =======================
+# =====================
+# CLIENT STATUS API
+# =====================
+@app.route("/status/<hostname>")
+def client_status(hostname):
+    with LOCK:
+        clients = load_clients()
+        for c in clients:
+            if c.get("hostname") == hostname:
+                return jsonify({"status": c.get("status", "OFF")})
+    return jsonify({"status": "OFF"})
+
+# =====================
+# SET INTERVAL + ON/OFF CONFIG
+# =====================
 @app.route("/set_interval", methods=["POST"])
 def set_interval():
     seconds = int(request.form.get("seconds", 1500))
@@ -102,68 +94,12 @@ def set_interval():
     cfg["enabled"] = enabled
     cfg["sudo_user"] = sudo_user
     cfg["sudo_pass"] = sudo_pass
-    cfg["last_switch"] = now_ts()
-
-    # aturan awal: 1 client ON (index 0), sisanya OFF
-    clients = load_clients()
-    rules = {}
-    for idx, c in enumerate(clients):
-        rules[c["hostname"]] = "ON" if idx == 0 else "OFF"
-    cfg["rules"] = rules
-
     save_config(cfg)
-    return "Interval & rules updated. <a href='/'>Kembali</a>"
+    return "Interval updated. <a href='/'>Kembali</a>"
 
-# =======================
-# Switch Rules ON/OFF
-# =======================
-def switch_rules_if_needed():
-    cfg = load_config()
-    if not cfg.get("enabled", True):
-        return
-
-    now = now_ts()
-    interval = cfg.get("interval_seconds", 1500)
-    last = cfg.get("last_switch", 0)
-
-    if now - last >= interval:
-        rules = cfg.get("rules", {})
-        if rules:
-            hostnames = list(rules.keys())
-            # cari yang ON, set OFF, client selanjutnya ON
-            try:
-                current_on = hostnames.index(next(h for h in hostnames if rules[h] == "ON"))
-            except StopIteration:
-                current_on = -1
-            # set semua OFF
-            for h in rules:
-                rules[h] = "OFF"
-            # ON client selanjutnya
-            next_on = (current_on + 1) % len(hostnames)
-            rules[hostnames[next_on]] = "ON"
-            cfg["rules"] = rules
-            cfg["last_switch"] = now
-            save_config(cfg)
-            print(f"[SWITCH RULES] {hostnames[next_on]} ON, others OFF")
-
-# =======================
-# Client Status Endpoint
-# =======================
-@app.route("/client_status/<hostname>")
-def client_status(hostname):
-    switch_rules_if_needed()
-    cfg = load_config()
-    status = cfg.get("rules", {}).get(hostname, "OFF") if cfg.get("enabled", True) else "OFF"
-    # sertakan credential sudo untuk client
-    return jsonify({
-        "status": status,
-        "sudo_user": cfg.get("sudo_user"),
-        "sudo_pass": cfg.get("sudo_pass")
-    })
-
-# =======================
-# Index HTML
-# =======================
+# =====================
+# INDEX HTML
+# =====================
 @app.route("/")
 def index():
     with LOCK:
@@ -176,22 +112,46 @@ def index():
         last_seen = c.get("last_seen", 0)
         delta = now - last_seen if last_seen else 999999
         state = "ONLINE" if delta <= OFFLINE_THRESHOLD else "OFFLINE"
-        last_seen_ago = f"{delta} detik yang lalu" if last_seen else "tidak pernah"
-        status = cfg.get("rules", {}).get(c.get("hostname"), "OFF") if cfg.get("enabled", True) else "OFF"
+        last_seen_ago = delta if last_seen else "tidak pernah"
 
         clients.append({
             "id": idx,
             "hostname": c.get("hostname", "unknown"),
             "ip": c.get("ip", "-"),
+            "status": c.get("status","OFF"),
             "state": state,
-            "last_seen_ago": last_seen_ago,
-            "status": status
+            "last_seen_ago": last_seen_ago
         })
 
     return render_template("index.html", clients=clients, cfg=cfg)
 
-# =======================
-# Main
-# =======================
+# =====================
+# AUTO ROUND-ROBIN ON/OFF
+# =====================
+def auto_rotate_clients():
+    while True:
+        with LOCK:
+            clients = load_clients()
+            if not clients:
+                time.sleep(5)
+                continue
+            # hanya satu ON
+            on_set = False
+            for idx, c in enumerate(clients):
+                if not on_set and c.get("status")=="OFF":
+                    c["status"]="ON"
+                    on_set = True
+                else:
+                    c["status"]="OFF"
+            save_clients(clients)
+        cfg = load_config()
+        sleep_time = cfg.get("interval_seconds",1500) if cfg.get("enabled",True) else 5
+        time.sleep(sleep_time)
+
+# =====================
+# MAIN
+# =====================
 if __name__ == "__main__":
+    t = threading.Thread(target=auto_rotate_clients, daemon=True)
+    t.start()
     app.run(host="0.0.0.0", port=5000, debug=True)
