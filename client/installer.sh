@@ -3,22 +3,28 @@ set -e
 
 echo "[+] Installing NYILSRV Client"
 
-apt update
-apt install -y python3 python3-pip curl
+BASE=/opt/nyilsrv-client
 
-pip3 install flask requests
+sudo apt update
+sudo apt install -y python3 python3-venv curl
 
-echo "[+] Setup directories"
-mkdir -p /opt/nyilclient
+sudo mkdir -p $BASE
+sudo cp client.py $BASE/
 
-echo "[+] Copy client files"
-cp client.py /opt/nyilclient/
+cd $BASE
 
-echo "[+] Install systemd service"
-cp client.service /etc/systemd/system/
+echo "[+] Creating virtualenv"
+python3 -m venv venv
 
-systemctl daemon-reload
-systemctl enable client
-systemctl restart client
+echo "[+] Installing python deps"
+$BASE/venv/bin/pip install --upgrade pip
+$BASE/venv/bin/pip install requests
 
-echo "[✓] Client installed & running"
+echo "[+] Installing systemd service"
+sudo cp client.service /etc/systemd/system/
+
+sudo systemctl daemon-reload
+sudo systemctl enable client
+sudo systemctl restart client
+
+echo "[+] NYILSRV Client installed successfully"
