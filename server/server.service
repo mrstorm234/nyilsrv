@@ -3,8 +3,10 @@ Description=NYILSRV Server
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/nyilsrv/app.py
+WorkingDirectory=/root/nyilsrv/server
+ExecStart=/root/nyilsrv/server/venv/bin/python app.py
 Restart=always
+User=root
 
 [Install]
 WantedBy=multi-user.target
