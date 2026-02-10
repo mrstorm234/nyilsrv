@@ -5,13 +5,17 @@ CLIENT_DB = os.path.join(BASE, "clients.json")
 CFG_DB = os.path.join(BASE, "config.json")
 
 def load_clients():
+    if not os.path.exists(CLIENT_DB):
+        return []
     return json.load(open(CLIENT_DB))
 
 def save_clients(d):
     json.dump(d, open(CLIENT_DB, "w"), indent=2)
 
 def interval_seconds():
-    return json.load(open(CFG_DB))["interval_seconds"]
+    if not os.path.exists(CFG_DB):
+        return 1500
+    return json.load(open(CFG_DB)).get("interval_seconds", 1500)
 
 def send(ip, mode):
     try:
@@ -23,26 +27,33 @@ def send(ip, mode):
     except:
         pass
 
+last_active_index = -1  # simpan urutan client terakhir yang aktif
+
 while True:
-    clients = load_clients()
-    now = time.time()
+    try:
+        clients = load_clients()
+        now = time.time()
 
-    online = [c for c in clients if now - c["last_seen"] < 90]
+        # tandai semua OFFLINE jika last_seen terlalu lama
+        for c in clients:
+            if now - c.get("last_seen", 0) > 90:
+                c["state"] = "OFFLINE"
+            else:
+                c["state"] = "WAITING"
+                send(c["ip"], "off")
 
-    for c in clients:
-        c["state"] = "OFFLINE"
+        # pilih client yang ONLINE untuk ACTIVE
+        online = [c for c in clients if c["state"] != "OFFLINE"]
+        if online:
+            last_active_index = (last_active_index + 1) % len(online)
+            active = online[last_active_index]
+            active["state"] = "ACTIVE"
+            send(active["ip"], "on")
 
-    for c in online:
-        c["state"] = "WAITING"
-        send(c["ip"], "off")
+        save_clients(clients)
+        print(f"[ROTATE] Active unit: {active['hostname'] if online else 'None'}")
+        time.sleep(interval_seconds())
 
-    if online:
-        active = online.pop(0)
-        active["state"] = "ACTIVE"
-        send(active["ip"], "on")
-        online.append(active)
-
-    save_clients(clients)
-
-    print("Rotate every", interval_seconds(), "seconds")
-    time.sleep(interval_seconds())
+    except Exception as e:
+        print("[ERROR]", e)
+        time.sleep(5)
