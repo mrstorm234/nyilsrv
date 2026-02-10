@@ -1,136 +1,82 @@
-from flask import Flask, request
-import socket
-import subprocess
-import threading
-import time
-import requests
-import os
+import socket, requests, time, ipaddress, subprocess
 
-app = Flask(__name__)
+PORT = 5000
+INTERVAL = 10
 
-SERVER_PORT = 5000
-CONTROL_PORT = 6000
-HEARTBEAT_INTERVAL = 30
-SCAN_INTERVAL = 10
+hostname = socket.gethostname()
 
-HOSTNAME = socket.gethostname()
-SERVER_IP = None
+def get_my_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    ip = s.getsockname()[0]
+    s.close()
+    return ip
 
-# =========================
-# GET LOCAL IP (LEBIH AKURAT)
-# =========================
-def get_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except:
-        return "0.0.0.0"
+my_ip = get_my_ip()
+subnet = ipaddress.ip_network(my_ip + "/24", strict=False)
 
-IP_ADDR = get_ip()
+server_ip = None
+registered = False
 
-# =========================
-# FIND SERVER (AUTO SCAN)
-# =========================
-def find_server():
-    try:
-        base = ".".join(IP_ADDR.split(".")[:-1])
-    except:
-        return None
+# -------- scan server --------
 
-    print("[SCAN] scanning subnet", base + ".0/24")
-
-    for i in range(1, 255):
-        ip = f"{base}.{i}"
+def scan_server():
+    global server_ip
+    for ip in subnet:
         try:
-            r = requests.get(
-                f"http://{ip}:{SERVER_PORT}",
-                timeout=0.3
-            )
-            if r.status_code == 200:
-                print("[SCAN] server found:", ip)
-                return ip
+            url = f"http://{ip}:{PORT}/ping"
+            r = requests.get(url, timeout=0.4)
+            if r.ok and r.json().get("server") == "nyilsrv-server":
+                server_ip = str(ip)
+                print("[FOUND SERVER]", server_ip)
+                return True
         except:
             pass
-    return None
+    return False
 
-# =========================
-# REGISTER CLIENT (AUTO RETRY)
-# =========================
-def register_loop():
-    global SERVER_IP
+# -------- register --------
 
-    while True:
-        if not SERVER_IP:
-            SERVER_IP = find_server()
+def register():
+    global registered
+    r = requests.post(
+        f"http://{server_ip}:{PORT}/register",
+        json={
+            "hostname": hostname,
+            "ip": my_ip
+        },
+        timeout=2
+    )
+    if r.ok:
+        registered = True
+        print("[REGISTERED]")
 
-        if SERVER_IP:
-            try:
-                requests.post(
-                    f"http://{SERVER_IP}:{SERVER_PORT}/register",
-                    json={
-                        "hostname": HOSTNAME,
-                        "ip": IP_ADDR
-                    },
-                    timeout=5
-                )
-                print("[REGISTER] OK ->", SERVER_IP)
-                return
-            except:
-                print("[REGISTER] failed, retry")
+# -------- heartbeat --------
 
-        time.sleep(SCAN_INTERVAL)
-
-# =========================
-# HEARTBEAT THREAD
-# =========================
 def heartbeat():
-    global SERVER_IP
+    requests.post(
+        f"http://{server_ip}:{PORT}/heartbeat",
+        json={"hostname": hostname},
+        timeout=2
+    )
 
-    while True:
-        if SERVER_IP:
-            try:
-                requests.post(
-                    f"http://{SERVER_IP}:{SERVER_PORT}/heartbeat",
-                    json={"hostname": HOSTNAME},
-                    timeout=5
-                )
-            except:
-                print("[HB] lost server, rescan")
-                SERVER_IP = None
+# -------- main loop --------
 
-        time.sleep(HEARTBEAT_INTERVAL)
+while True:
+    try:
+        if not server_ip:
+            print("[SCAN] scanning subnet", subnet)
+            if not scan_server():
+                time.sleep(5)
+                continue
 
-# =========================
-# CONTROL FROM SERVER
-# =========================
-@app.route("/control", methods=["POST"])
-def control():
-    data = request.json
-    mode = data.get("mode")
+        if not registered:
+            register()
 
-    if mode == "off":
-        print("MODE OFF")
-        subprocess.call(["systemctl", "stop", "earnapp.service"])
+        heartbeat()
+        time.sleep(INTERVAL)
 
-    elif mode == "on":
-        print("MODE ON")
-        subprocess.call(["systemctl", "start", "NetworkManager.service"])
-        subprocess.call(["systemctl", "restart", "earnapp.service"])
-
-    return {"ok": 1}
-
-# =========================
-# MAIN
-# =========================
-if __name__ == "__main__":
-    print("[NYILSRV CLIENT]")
-    print("Hostname:", HOSTNAME)
-    print("IP      :", IP_ADDR)
-
-    threading.Thread(target=register_loop, daemon=True).start()
-    threading.Thread(target=heartbeat, daemon=True).start()
-
-    app.run("0.0.0.0", CONTROL_PORT)
+    except Exception as e:
+        print("[ERROR]", e)
+        server_ip = None
+        registered = False
+        time.sleep(3)
