@@ -82,6 +82,10 @@ cd nyilsrv/client
 2️⃣ Jalankan Installer Client
 sudo bash installer.sh
 
+cd nyilsrv/client
+chmod +x installer.sh
+sudo bash installer.sh
+
 
 Installer client akan otomatis:
 
