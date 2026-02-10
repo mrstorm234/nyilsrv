@@ -1,9 +1,6 @@
 from flask import Flask, request, jsonify, render_template
 from datetime import datetime
-import socket
-import json
-import os
-import threading
+import json, os, threading
 
 app = Flask(__name__)
 
@@ -13,24 +10,24 @@ LOCK = threading.Lock()
 OFFLINE_THRESHOLD = 15  # detik
 
 # =====================
-# HELPER JSON
+# Helper JSON
 # =====================
 def load_clients():
     if not os.path.exists(DATA_FILE):
-        return {}
+        return []
     with open(DATA_FILE, "r") as f:
         try:
             return json.load(f)
         except json.JSONDecodeError:
-            return {}
+            return []
 
-def save_clients(data):
+def save_clients(clients):
     with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(clients, f, indent=2)
 
 def load_config():
     if not os.path.exists(CONFIG_FILE):
-        return {"interval_seconds": 1500, "enabled": True}  # default 25 menit ON
+        return {"interval_seconds": 1500, "enabled": True}
     with open(CONFIG_FILE, "r") as f:
         try:
             return json.load(f)
@@ -45,36 +42,49 @@ def now_ts():
     return int(datetime.utcnow().timestamp())
 
 # =====================
-# PING (CLIENT -> SERVER)
+# REGISTER (client.py lama)
 # =====================
-@app.route("/ping", methods=["GET", "POST"])
-def ping():
-    if request.method == "POST":
-        data = request.json or {}
-        hostname = data.get("hostname", "unknown")
-        ip = request.remote_addr
+@app.route("/register", methods=["POST"])
+def register():
+    data = request.json or {}
+    hostname = data.get("hostname", "unknown")
+    ip = data.get("ip", request.remote_addr)
 
-        with LOCK:
-            clients = load_clients()
-            clients[hostname] = {
-                "hostname": hostname,
-                "ip": ip,
-                "last_seen": now_ts()
-            }
-            save_clients(clients)
+    with LOCK:
+        clients = load_clients()
+        found = False
+        for c in clients:
+            if c.get("hostname") == hostname:
+                c["ip"] = ip
+                c["last_seen"] = now_ts()
+                found = True
+                break
+        if not found:
+            clients.append({"hostname": hostname, "ip": ip, "last_seen": now_ts()})
+        save_clients(clients)
 
-        return jsonify({
-            "ok": 1,
-            "server": "nyilsrv-server"
-        })
-
-    return jsonify({
-        "ok": 1,
-        "server": socket.gethostname()
-    })
+    return jsonify({"ok": 1, "msg": "registered"})
 
 # =====================
-# SET INTERVAL
+# HEARTBEAT (client.py lama)
+# =====================
+@app.route("/heartbeat", methods=["POST"])
+def heartbeat():
+    data = request.json or {}
+    hostname = data.get("hostname", "unknown")
+
+    with LOCK:
+        clients = load_clients()
+        for c in clients:
+            if c.get("hostname") == hostname:
+                c["last_seen"] = now_ts()
+                break
+        save_clients(clients)
+
+    return jsonify({"ok": 1, "msg": "heartbeat received"})
+
+# =====================
+# SET INTERVAL + ON/OFF
 # =====================
 @app.route("/set_interval", methods=["POST"])
 def set_interval():
@@ -87,7 +97,7 @@ def set_interval():
     return "Interval updated. <a href='/'>Kembali</a>"
 
 # =====================
-# INDEX (HTML)
+# INDEX HTML
 # =====================
 @app.route("/")
 def index():
@@ -98,16 +108,15 @@ def index():
     now = now_ts()
     clients = []
 
-    for idx, (hostname, c) in enumerate(sorted(clients_data.items()), start=1):
+    for idx, c in enumerate(clients_data, start=1):
         last_seen = c.get("last_seen", 0)
         delta = now - last_seen if last_seen else 999999
-
         state = "ONLINE" if delta <= OFFLINE_THRESHOLD else "OFFLINE"
         last_seen_ago = delta if last_seen else "tidak pernah"
 
         clients.append({
             "id": idx,
-            "hostname": hostname,
+            "hostname": c.get("hostname", "unknown"),
             "ip": c.get("ip", "-"),
             "state": state,
             "last_seen_ago": last_seen_ago
