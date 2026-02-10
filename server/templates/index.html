@@ -3,51 +3,113 @@
 <head>
     <title>NYILSRV Control Panel</title>
     <style>
-        body { font-family: Arial; }
-        .ACTIVE { color: green; font-weight: bold; }
-        .WAITING { color: orange; }
-        .OFFLINE { color: red; }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f4f6f8;
+            padding: 20px;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            background: white;
+        }
+
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px 10px;
+            text-align: left;
+        }
+
+        th {
+            background: #eee;
+        }
+
+        .ONLINE {
+            color: green;
+            font-weight: bold;
+        }
+
+        .OFFLINE {
+            color: red;
+            font-weight: bold;
+        }
+
+        .box {
+            background: white;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            box-shadow: 0 0 4px rgba(0,0,0,0.1);
+        }
+
+        button {
+            padding: 6px 12px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
 
-<h2>Auto Rotate Interval</h2>
-<form method="post" action="/set_interval">
-    <select name="seconds">
-        <option value="1500">25 Menit</option>
-        <option value="2100">35 Menit</option>
-        <option value="3600">1 Jam</option>
-        <option value="7200">2 Jam</option>
-        <option value="10800">3 Jam</option>
-    </select>
-    <button type="submit">Aktifkan</button>
-</form>
+<div class="box">
+    <h2>Auto Rotate Interval</h2>
+    <form method="post" action="/set_interval">
+        <select name="seconds">
+            <option value="1500" {% if cfg.interval_seconds == 1500 %}selected{% endif %}>25 Menit</option>
+            <option value="2100" {% if cfg.interval_seconds == 2100 %}selected{% endif %}>35 Menit</option>
+            <option value="3600" {% if cfg.interval_seconds == 3600 %}selected{% endif %}>1 Jam</option>
+            <option value="7200" {% if cfg.interval_seconds == 7200 %}selected{% endif %}>2 Jam</option>
+            <option value="10800" {% if cfg.interval_seconds == 10800 %}selected{% endif %}>3 Jam</option>
+        </select>
+        <button type="submit">Aktifkan</button>
+    </form>
 
-<hr>
+    <p>
+        <small>Interval aktif: <b>{{ cfg.interval_seconds }} detik</b></small>
+    </p>
+</div>
 
-<h2>Client Status</h2>
-<table border="1" cellpadding="8">
-<tr>
-    <th>ID</th>
-    <th>Hostname</th>
-    <th>IP</th>
-    <th>Status</th>
-</tr>
+<div class="box">
+    <h2>Client Status</h2>
 
-{% for c in clients %}
-<tr>
-    <td>{{ c.id }}</td>
-    <td>{{ c.hostname }}</td>
-    <td>{{ c.ip }}</td>
-    <td class="{{ c.state }}">{{ c.state }}</td>
-</tr>
-{% else %}
-<tr>
-    <td colspan="4">Belum ada client</td>
-</tr>
-{% endfor %}
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Hostname</th>
+            <th>IP</th>
+            <th>Status</th>
+            <th>Last Seen</th>
+        </tr>
 
-</table>
+        {% for c in clients %}
+        <tr>
+            <td>{{ c.id }}</td>
+            <td>{{ c.hostname }}</td>
+            <td>{{ c.ip }}</td>
+            <td class="{{ c.state }}">{{ c.state }}</td>
+            <td>
+                {{ ( (namespace(now=cycler)).now ) }}
+                {{ ( ( ( ( ( ( ( ( ( ( ( ( ( ) ) ) ) ) ) ) ) ) ) ) ) }}
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="5" style="text-align:center;">
+                Belum ada client terdaftar
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<script>
+    // auto refresh tiap 5 detik
+    setTimeout(() => location.reload(), 5000);
+</script>
 
 </body>
 </html>
