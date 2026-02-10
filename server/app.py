@@ -42,6 +42,13 @@ def now_ts():
     return int(datetime.utcnow().timestamp())
 
 # =====================
+# PING
+# =====================
+@app.route("/ping")
+def ping():
+    return jsonify({"server": "nyilsrv-server"})
+
+# =====================
 # REGISTER / HEARTBEAT
 # =====================
 @app.route("/register", methods=["POST"])
@@ -96,7 +103,7 @@ def index():
         last_seen = c.get("last_seen", 0)
         delta = now - last_seen if last_seen else 999999
         state = "ONLINE" if delta <= OFFLINE_THRESHOLD else "OFFLINE"
-        last_seen_ago = delta if last_seen else "tidak pernah"
+        last_seen_ago = f"{delta} detik yang lalu" if last_seen else "tidak pernah"
 
         clients.append({
             "id": idx,
