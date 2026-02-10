@@ -1,64 +1,76 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8">
-<title>NYILSRV Dashboard</title>
-<style>
-body { font-family: Arial; background:#111; color:#eee }
-table { width:100%; border-collapse:collapse }
-th,td { padding:8px; border:1px solid #333; text-align:center }
-.ON { color:#0f0 }
-.OFF { color:#f00 }
-.WAITING { color:#ff0 }
-a { color:#0af; text-decoration:none; padding:4px 8px; border:1px solid #555 }
-form { margin-bottom:20px }
-</style>
+    <title>NYILSRV Control Panel</title>
+    <style>
+        body { font-family: Arial, Helvetica, sans-serif; background: #f4f6f8; padding: 20px; }
+        .box { background: white; padding: 15px; margin-bottom: 20px; border-radius: 6px; box-shadow: 0 0 4px rgba(0,0,0,0.1); }
+        table { border-collapse: collapse; width: 100%; background: white; }
+        th, td { border: 1px solid #ccc; padding: 8px; }
+        th { background: #eee; }
+        .ONLINE { color: green; font-weight: bold; }
+        .OFFLINE { color: red; font-weight: bold; }
+        .ON { color: green; font-weight: bold; }
+        .OFF { color: red; font-weight: bold; }
+    </style>
 </head>
 <body>
 
-<h2>NYILSRV CLIENT LIST</h2>
+<div class="box">
+    <h2>Auto Rotate Interval</h2>
+    <form method="post" action="/set_interval">
+        <label>
+            <input type="checkbox" name="enabled" {% if cfg.enabled %}checked{% endif %}> Aktifkan Auto-Rotate
+        </label>
+        <br><br>
+        <select name="seconds">
+            <option value="300" {% if cfg.interval_seconds == 300 %}selected{% endif %}>5 Menit</option>
+            <option value="900" {% if cfg.interval_seconds == 900 %}selected{% endif %}>15 Menit</option>
+            <option value="1500" {% if cfg.interval_seconds == 1500 %}selected{% endif %}>25 Menit</option>
+            <option value="3600" {% if cfg.interval_seconds == 3600 %}selected{% endif %}>1 Jam</option>
+            <option value="7200" {% if cfg.interval_seconds == 7200 %}selected{% endif %}>2 Jam</option>
+        </select>
+        <button type="submit">Simpan</button>
+    </form>
+    <p><small>Status: <b>{{ "ON" if cfg.enabled else "OFF" }}</b>, Interval aktif: <b>{{ cfg.interval_seconds }} detik</b></small></p>
+    {% if next_active_in %}
+    <p><small>Waktu sampai client berikutnya ON: <b>{{ next_active_in }} detik</b></small></p>
+    {% endif %}
+</div>
 
-<form method="post" action="/set_interval">
-<label>
-<input type="checkbox" name="enabled" {% if rotate_enabled %}checked{% endif %}> Aktifkan Rotasi Otomatis
-</label>
-<select name="seconds">
-<option value="300" {% if interval==300 %}selected{% endif %}>5 Menit</option>
-<option value="900" {% if interval==900 %}selected{% endif %}>15 Menit</option>
-<option value="1500" {% if interval==1500 %}selected{% endif %}>25 Menit</option>
-<option value="3600" {% if interval==3600 %}selected{% endif %}>1 Jam</option>
-<option value="7200" {% if interval==7200 %}selected{% endif %}>2 Jam</option>
-</select>
-<button type="submit">Simpan</button>
-</form>
+<div class="box">
+    <h2>Client Status</h2>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Hostname</th>
+            <th>IP</th>
+            <th>Status</th>
+            <th>State</th>
+            <th>Last Seen</th>
+        </tr>
 
-<table>
-<tr>
-<th>UNIT ID</th>
-<th>Hostname</th>
-<th>IP</th>
-<th>Status</th>
-<th>Last Seen</th>
-<th>Action</th>
-</tr>
+        {% for c in clients %}
+        <tr>
+            <td>{{ c.id }}</td>
+            <td>{{ c.hostname }}</td>
+            <td>{{ c.ip }}</td>
+            <td class="{{ c.status }}">{{ c.status }}</td>
+            <td class="{{ c.state }}">{{ c.state }}</td>
+            <td>{{ c.last_seen_ago }} detik lalu</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="6" style="text-align:center;">Belum ada client</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
 
-{% for uid,c in clients.items() %}
-<tr>
-<td>{{ uid }}</td>
-<td>{{ c.hostname }}</td>
-<td>{{ c.ip }}</td>
-<td class="{{ c.status }}">{{ c.status }}</td>
-<td>{{ (now - c.last_seen)|int }} sec</td>
-<td>
-<a href="/set/{{ uid }}/ON">ON</a>
-<a href="/set/{{ uid }}/OFF">OFF</a>
-</td>
-</tr>
-{% endfor %}
-</table>
-
-<p>ACTIVE UNIT: {{ active }}</p>
-<p>ROTASI INTERVAL: {{ interval }} detik</p>
+<script>
+    // reload setiap 5 detik supaya client baru terlihat
+    setTimeout(() => location.reload(), 5000);
+</script>
 
 </body>
 </html>
