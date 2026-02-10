@@ -1,152 +1,150 @@
-from flask import Flask, request, jsonify, render_template, redirect
-import threading, time, json, os
+from flask import Flask, request, jsonify, render_template
+from datetime import datetime
+import json, os, threading, time
 
 app = Flask(__name__)
+
+DATA_FILE = "clients.json"
+CONFIG_FILE = "config.json"
 LOCK = threading.Lock()
+OFFLINE_THRESHOLD = 60  # detik, client dianggap ONLINE jika ping < 60s
 
-BASE_DIR = os.path.dirname(__file__)
-CLIENT_DB = os.path.join(BASE_DIR, "clients.json")
-CFG_DB = os.path.join(BASE_DIR, "config.json")
-
-# ===== LOAD/STORE CLIENTS =====
+# =====================
+# Helper JSON
+# =====================
 def load_clients():
-    if not os.path.exists(CLIENT_DB):
-        return {}
-    return json.load(open(CLIENT_DB))
+    if not os.path.exists(DATA_FILE):
+        return []
+    with open(DATA_FILE, "r") as f:
+        try:
+            return json.load(f)
+        except:
+            return []
 
 def save_clients(clients):
-    json.dump(clients, open(CLIENT_DB, "w"), indent=2)
+    with open(DATA_FILE, "w") as f:
+        json.dump(clients, f, indent=2)
 
-# ===== LOAD/STORE CONFIG =====
 def load_config():
-    if not os.path.exists(CFG_DB):
+    if not os.path.exists(CONFIG_FILE):
         cfg = {"interval_seconds": 1500, "enabled": True}
         save_config(cfg)
         return cfg
-    return json.load(open(CFG_DB))
+    try:
+        cfg = json.load(open(CONFIG_FILE))
+    except:
+        cfg = {"interval_seconds": 1500, "enabled": True}
+        save_config(cfg)
+        return cfg
+    if "interval_seconds" not in cfg:
+        cfg["interval_seconds"] = 1500
+    if "enabled" not in cfg:
+        cfg["enabled"] = True
+    return cfg
 
 def save_config(cfg):
-    json.dump(cfg, open(CFG_DB, "w"), indent=2)
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(cfg, f, indent=2)
 
-# ===== GLOBAL VAR =====
-ACTIVE_UNIT = None
-ROTATE_ENABLED = True
-ROTATE_INTERVAL = 1500
+def now_ts():
+    return int(datetime.utcnow().timestamp())
 
-# ===== REGISTER =====
+# =====================
+# REGISTER / HEARTBEAT
+# =====================
 @app.route("/register", methods=["POST"])
-def register():
-    data = request.json
-    uid = data["unit_id"]
-    hostname = data.get("hostname")
-    ip = data.get("ip")
-    with LOCK:
-        clients = load_clients()
-        clients[uid] = clients.get(uid, {})
-        clients[uid].update({
-            "hostname": hostname,
-            "ip": ip,
-            "last_seen": time.time(),
-            "status": clients.get(uid, {}).get("status", "OFF")
-        })
-        save_clients(clients)
-    return jsonify(ok=True)
-
-# ===== HEARTBEAT =====
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
-    uid = request.json.get("unit_id")
-    with LOCK:
-        clients = load_clients()
-        if uid in clients:
-            clients[uid]["last_seen"] = time.time()
-            save_clients(clients)
-    return jsonify(ok=True)
+    data = request.json or {}
+    hostname = data.get("hostname", "unknown")
+    ip = data.get("ip", request.remote_addr)
 
-# ===== GET STATUS UNTUK CLIENT =====
-@app.route("/status/<uid>")
-def status(uid):
     with LOCK:
         clients = load_clients()
-        return jsonify(status=clients.get(uid, {}).get("status", "OFF"))
-
-# ===== SET STATUS MANUAL =====
-@app.route("/set/<uid>/<state>")
-def set_state(uid, state):
-    global ACTIVE_UNIT
-    with LOCK:
-        clients = load_clients()
-        for k in clients:
-            clients[k]["status"] = "OFF"
-        if state == "ON":
-            clients[uid]["status"] = "ON"
-            ACTIVE_UNIT = uid
-        else:
-            ACTIVE_UNIT = None
+        found = False
+        for c in clients:
+            if c.get("hostname") == hostname:
+                c["ip"] = ip
+                c["last_seen"] = now_ts()
+                found = True
+                break
+        if not found:
+            clients.append({"hostname": hostname, "ip": ip, "last_seen": now_ts(), "status":"OFF"})
         save_clients(clients)
-    return redirect("/")
 
-# ===== SET INTERVAL =====
+    print(f"[HEARTBEAT/REGISTER] {hostname} - {ip}")
+    return jsonify({"ok": 1, "msg": "heartbeat/registered"})
+
+# =====================
+# SET INTERVAL + ON/OFF
+# =====================
 @app.route("/set_interval", methods=["POST"])
 def set_interval():
-    global ROTATE_INTERVAL, ROTATE_ENABLED
     seconds = int(request.form.get("seconds", 1500))
     enabled = request.form.get("enabled") == "on"
-    ROTATE_INTERVAL = seconds
-    ROTATE_ENABLED = enabled
-    cfg = {"interval_seconds": ROTATE_INTERVAL, "enabled": ROTATE_ENABLED}
+    cfg = load_config()
+    cfg["interval_seconds"] = seconds
+    cfg["enabled"] = enabled
     save_config(cfg)
-    return redirect("/")
+    return "Interval updated. <a href='/'>Kembali</a>"
 
-# ===== DASHBOARD =====
+# =====================
+# CLIENT STATUS API
+# =====================
+@app.route("/status/<hostname>")
+def get_status(hostname):
+    with LOCK:
+        clients = load_clients()
+        for c in clients:
+            if c.get("hostname") == hostname:
+                return jsonify({"status": c.get("status","OFF")})
+    return jsonify({"status":"OFF"})
+
+# =====================
+# INDEX HTML
+# =====================
 @app.route("/")
 def index():
     with LOCK:
-        clients = load_clients()
-        cfg = load_config()
-        now = time.time()
-        return render_template(
-            "index.html",
-            clients=clients,
-            active=ACTIVE_UNIT,
-            now=now,
-            interval=cfg["interval_seconds"],
-            rotate_enabled=cfg["enabled"]
-        )
+        clients_data = load_clients()
+    cfg = load_config()
+    now = now_ts()
 
-# ===== ROTATE LOGIC =====
-def rotate_clients():
-    global ACTIVE_UNIT
-    last_rotate = time.time()
-    while True:
-        time.sleep(1)
-        cfg = load_config()
-        interval = cfg.get("interval_seconds", 1500)
-        if not cfg.get("enabled", True):
-            continue
-        clients = load_clients()
-        online = [c for c in clients if time.time() - c.get("last_seen", 0) < 90]
-        if not online:
-            continue
-        # hitung next index
-        uids = list(clients.keys())
-        if ACTIVE_UNIT not in uids:
-            next_idx = 0
-        else:
-            idx = uids.index(ACTIVE_UNIT)
-            next_idx = (idx + 1) % len(uids)
-        # set OFF semua
-        for uid in uids:
-            clients[uid]["status"] = "OFF"
-        # set ACTIVE
-        ACTIVE_UNIT = uids[next_idx]
-        clients[ACTIVE_UNIT]["status"] = "ON"
-        save_clients(clients)
-        last_rotate = time.time()
-        print(f"[ROTATE] Active unit: {clients[ACTIVE_UNIT]['hostname']}")
-        time.sleep(interval)
+    clients = []
+    next_active_in = cfg["interval_seconds"]  # default countdown
 
-threading.Thread(target=rotate_clients, daemon=True).start()
+    online_clients = [c for c in clients_data if now - c.get("last_seen",0) <= OFFLINE_THRESHOLD]
 
+    for idx, c in enumerate(clients_data, start=1):
+        last_seen = c.get("last_seen", 0)
+        delta = now - last_seen if last_seen else 999999
+        state = "ONLINE" if delta <= OFFLINE_THRESHOLD else "OFFLINE"
+
+        clients.append({
+            "id": idx,
+            "hostname": c.get("hostname", "unknown"),
+            "ip": c.get("ip", "-"),
+            "status": c.get("status","OFF"),
+            "state": state,
+            "last_seen_ago": delta
+        })
+
+    # hitung countdown untuk client berikutnya
+    if online_clients:
+        first_active = online_clients[0]
+        if "last_activated" in first_active:
+            elapsed = now - first_active["last_activated"]
+            next_active_in = max(cfg["interval_seconds"] - elapsed, 0)
+
+    return render_template(
+        "index.html",
+        clients=clients,
+        cfg=cfg,
+        next_active_in=next_active_in
+    )
+
+# =====================
+# MAIN
+# =====================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
