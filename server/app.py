@@ -1,5 +1,5 @@
 from flask import Flask, request, render_template, redirect, jsonify
-import json, time, os, socket
+import json, time, os, socket, threading
 
 app = Flask(__name__)
 
@@ -12,33 +12,42 @@ SERVER_INFO = {
     "hostname": socket.gethostname()
 }
 
-OFFLINE_AFTER = 30  # detik
+OFFLINE_AFTER = 30
+LOCK = threading.Lock()
 
 # ---------------- utils ----------------
 
-def load_json(path, default):
-    if not os.path.exists(path):
-        with open(path, "w") as f:
-            json.dump(default, f, indent=2)
-        return default
-    with open(path) as f:
-        return json.load(f)
+def safe_load_json(path, default):
+    with LOCK:
+        try:
+            if not os.path.exists(path):
+                with open(path, "w") as f:
+                    json.dump(default, f, indent=2)
+                return default
+            with open(path) as f:
+                return json.load(f)
+        except Exception as e:
+            print("[JSON LOAD ERROR]", e)
+            return default
 
-def save_json(path, data):
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+def safe_save_json(path, data):
+    with LOCK:
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, path)
 
 def load_clients():
-    return load_json(CLIENT_DB, [])
+    return safe_load_json(CLIENT_DB, [])
 
 def save_clients(d):
-    save_json(CLIENT_DB, d)
+    safe_save_json(CLIENT_DB, d)
 
 def load_cfg():
-    return load_json(CFG_DB, {"interval_seconds": 10})
+    return safe_load_json(CFG_DB, {"interval_seconds": 10})
 
 def save_cfg(d):
-    save_json(CFG_DB, d)
+    safe_save_json(CFG_DB, d)
 
 # --------------- routes ----------------
 
@@ -48,16 +57,11 @@ def index():
     clients = load_clients()
 
     for c in clients:
-        # safety untuk data lama
         last_seen = c.get("last_seen", 0)
         delta = int(now - last_seen)
 
         c["last_seen_ago"] = delta
-
-        if delta > OFFLINE_AFTER:
-            c["state"] = "OFFLINE"
-        else:
-            c["state"] = "ONLINE"
+        c["state"] = "OFFLINE" if delta > OFFLINE_AFTER else "ONLINE"
 
     save_clients(clients)
 
@@ -67,8 +71,7 @@ def index():
         cfg=load_cfg()
     )
 
-# 🔍 endpoint scan client
-@app.route("/ping", methods=["GET"])
+@app.route("/ping")
 def ping():
     return jsonify({
         "ok": 1,
@@ -90,7 +93,7 @@ def register():
     ip = data.get("ip")
 
     if not hostname or not ip:
-        return {"ok": 0, "error": "invalid data"}, 400
+        return {"ok": 0}, 400
 
     clients = load_clients()
 
@@ -98,8 +101,8 @@ def register():
         if c["hostname"] == hostname:
             c.update({
                 "ip": ip,
-                "state": "ONLINE",
-                "last_seen": time.time()
+                "last_seen": time.time(),
+                "state": "ONLINE"
             })
             save_clients(clients)
             return {"ok": 1}
@@ -108,8 +111,8 @@ def register():
         "id": len(clients) + 1,
         "hostname": hostname,
         "ip": ip,
-        "state": "ONLINE",
-        "last_seen": time.time()
+        "last_seen": time.time(),
+        "state": "ONLINE"
     })
 
     save_clients(clients)
@@ -125,32 +128,36 @@ def heartbeat():
         return {"ok": 0}, 400
 
     clients = load_clients()
-    found = False
 
     for c in clients:
         if c["hostname"] == hostname:
             c.update({
                 "ip": ip,
-                "state": "ONLINE",
-                "last_seen": time.time()
+                "last_seen": time.time(),
+                "state": "ONLINE"
             })
-            found = True
-            break
+            save_clients(clients)
+            return {"ok": 1}
 
-    # 🔥 auto-register fallback
-    if not found:
-        clients.append({
-            "id": len(clients) + 1,
-            "hostname": hostname,
-            "ip": ip,
-            "state": "ONLINE",
-            "last_seen": time.time()
-        })
+    # auto register fallback
+    clients.append({
+        "id": len(clients) + 1,
+        "hostname": hostname,
+        "ip": ip,
+        "last_seen": time.time(),
+        "state": "ONLINE"
+    })
 
     save_clients(clients)
     return {"ok": 1}
 
+# 🧯 global error handler
+@app.errorhandler(Exception)
+def handle_error(e):
+    print("[SERVER ERROR]", e)
+    return "Internal Server Error", 500
+
 # --------------- main ----------------
 
 if __name__ == "__main__":
-    app.run("0.0.0.0", 5000)
+    app.run("0.0.0.0", 5000, threaded=True)
