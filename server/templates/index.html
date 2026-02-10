@@ -10,7 +10,7 @@
 
 <div class="max-w-6xl mx-auto">
 
-    <!-- Interval & Sudo Credentials -->
+    <!-- Interval & Sudo -->
     <div class="bg-white shadow rounded-lg p-6 mb-6">
         <h2 class="text-2xl font-semibold mb-4">Auto Rotate Interval & Sudo</h2>
         <form method="post" action="/set_interval" class="space-y-4">
@@ -68,7 +68,7 @@
                         <td class="px-4 py-2">{{ c.ip }}</td>
                         <td class="px-4 py-2 font-semibold {% if c.status == 'ON' %}text-green-600{% else %}text-red-600{% endif %}">{{ c.status }}</td>
                         <td class="px-4 py-2 font-semibold {% if c.state == 'ONLINE' %}text-green-600{% else %}text-red-600{% endif %}">{{ c.state }}</td>
-                        <td class="px-4 py-2 text-gray-600">{{ c.last_seen_ago }}</td>
+                        <td class="px-4 py-2 text-gray-600">{{ c.last_seen_ago }} detik lalu</td>
                     </tr>
                     {% else %}
                     <tr>
@@ -83,7 +83,6 @@
 </div>
 
 <script>
-    // Reload otomatis setiap 5 detik
     setTimeout(() => location.reload(), 5000);
 </script>
 
