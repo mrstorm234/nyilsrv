@@ -6,12 +6,13 @@
         body { font-family: Arial, Helvetica, sans-serif; background: #f4f6f8; padding: 20px; }
         .box { background: white; padding: 15px; margin-bottom: 20px; border-radius: 6px; box-shadow: 0 0 4px rgba(0,0,0,0.1); }
         table { border-collapse: collapse; width: 100%; background: white; }
-        th, td { border: 1px solid #ccc; padding: 8px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align:center; }
         th { background: #eee; }
         .ONLINE { color: green; font-weight: bold; }
         .OFFLINE { color: red; font-weight: bold; }
-        .ON { color: green; font-weight: bold; }
-        .OFF { color: red; font-weight: bold; }
+        .ON { color: blue; font-weight: bold; }
+        .OFF { color: gray; font-weight: bold; }
+        button { padding:5px 10px; margin:2px; }
     </style>
 </head>
 <body>
@@ -19,9 +20,7 @@
 <div class="box">
     <h2>Auto Rotate Interval</h2>
     <form method="post" action="/set_interval">
-        <label>
-            <input type="checkbox" name="enabled" {% if cfg.enabled %}checked{% endif %}> Aktifkan Auto-Rotate
-        </label>
+        <label><input type="checkbox" name="enabled" {% if cfg.enabled %}checked{% endif %}> Aktifkan Auto-Rotate</label>
         <br><br>
         <select name="seconds">
             <option value="300" {% if cfg.interval_seconds == 300 %}selected{% endif %}>5 Menit</option>
@@ -32,10 +31,7 @@
         </select>
         <button type="submit">Simpan</button>
     </form>
-    <p><small>Status: <b>{{ "ON" if cfg.enabled else "OFF" }}</b>, Interval aktif: <b>{{ cfg.interval_seconds }} detik</b></small></p>
-    {% if next_active_in %}
-    <p><small>Waktu sampai client berikutnya ON: <b>{{ next_active_in }} detik</b></small></p>
-    {% endif %}
+    <p><small>Status: <b>{{ "ON" if cfg.enabled else "OFF" }}</b>, Interval: <b>{{ cfg.interval_seconds }} detik</b></small></p>
 </div>
 
 <div class="box">
@@ -48,8 +44,8 @@
             <th>Status</th>
             <th>State</th>
             <th>Last Seen</th>
+            <th>Action</th>
         </tr>
-
         {% for c in clients %}
         <tr>
             <td>{{ c.id }}</td>
@@ -58,19 +54,19 @@
             <td class="{{ c.status }}">{{ c.status }}</td>
             <td class="{{ c.state }}">{{ c.state }}</td>
             <td>{{ c.last_seen_ago }} detik lalu</td>
+            <td>
+                <a href="/control/{{ c.hostname }}/on"><button>ON</button></a>
+                <a href="/control/{{ c.hostname }}/off"><button>OFF</button></a>
+            </td>
         </tr>
         {% else %}
-        <tr>
-            <td colspan="6" style="text-align:center;">Belum ada client</td>
-        </tr>
+        <tr><td colspan="7">Belum ada client</td></tr>
         {% endfor %}
     </table>
 </div>
 
 <script>
-    // reload setiap 5 detik supaya client baru terlihat
-    setTimeout(() => location.reload(), 5000);
+    setTimeout(()=>location.reload(),5000);
 </script>
-
 </body>
 </html>
