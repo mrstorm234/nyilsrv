@@ -12,16 +12,21 @@ SERVER_INFO = {
     "hostname": socket.gethostname()
 }
 
+OFFLINE_AFTER = 30  # detik
+
 # ---------------- utils ----------------
 
 def load_json(path, default):
     if not os.path.exists(path):
-        json.dump(default, open(path, "w"), indent=2)
+        with open(path, "w") as f:
+            json.dump(default, f, indent=2)
         return default
-    return json.load(open(path))
+    with open(path) as f:
+        return json.load(f)
 
 def save_json(path, data):
-    json.dump(data, open(path, "w"), indent=2)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
 
 def load_clients():
     return load_json(CLIENT_DB, [])
@@ -42,10 +47,17 @@ def index():
     now = time.time()
     clients = load_clients()
 
-    # auto OFFLINE
     for c in clients:
-        if now - c["last_seen"] > 30:
+        # safety untuk data lama
+        last_seen = c.get("last_seen", 0)
+        delta = int(now - last_seen)
+
+        c["last_seen_ago"] = delta
+
+        if delta > OFFLINE_AFTER:
             c["state"] = "OFFLINE"
+        else:
+            c["state"] = "ONLINE"
 
     save_clients(clients)
 
@@ -73,9 +85,12 @@ def set_interval():
 
 @app.route("/register", methods=["POST"])
 def register():
-    data = request.json
-    hostname = data["hostname"]
-    ip = data["ip"]
+    data = request.json or {}
+    hostname = data.get("hostname")
+    ip = data.get("ip")
+
+    if not hostname or not ip:
+        return {"ok": 0, "error": "invalid data"}, 400
 
     clients = load_clients()
 
@@ -102,9 +117,12 @@ def register():
 
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
-    data = request.json
+    data = request.json or {}
     hostname = data.get("hostname")
     ip = request.remote_addr
+
+    if not hostname:
+        return {"ok": 0}, 400
 
     clients = load_clients()
     found = False
