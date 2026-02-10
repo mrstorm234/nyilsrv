@@ -7,7 +7,7 @@ app = Flask(__name__)
 DATA_FILE = "clients.json"
 CONFIG_FILE = "config.json"
 LOCK = threading.Lock()
-OFFLINE_THRESHOLD = 15  # detik
+OFFLINE_THRESHOLD = 60  # detik, supaya client bisa muncul ONLINE meski ping telat
 
 # =====================
 # Helper JSON
@@ -42,10 +42,11 @@ def now_ts():
     return int(datetime.utcnow().timestamp())
 
 # =====================
-# REGISTER (client.py lama)
+# REGISTER / HEARTBEAT
 # =====================
 @app.route("/register", methods=["POST"])
-def register():
+@app.route("/heartbeat", methods=["POST"])
+def heartbeat():
     data = request.json or {}
     hostname = data.get("hostname", "unknown")
     ip = data.get("ip", request.remote_addr)
@@ -63,25 +64,8 @@ def register():
             clients.append({"hostname": hostname, "ip": ip, "last_seen": now_ts()})
         save_clients(clients)
 
-    return jsonify({"ok": 1, "msg": "registered"})
-
-# =====================
-# HEARTBEAT (client.py lama)
-# =====================
-@app.route("/heartbeat", methods=["POST"])
-def heartbeat():
-    data = request.json or {}
-    hostname = data.get("hostname", "unknown")
-
-    with LOCK:
-        clients = load_clients()
-        for c in clients:
-            if c.get("hostname") == hostname:
-                c["last_seen"] = now_ts()
-                break
-        save_clients(clients)
-
-    return jsonify({"ok": 1, "msg": "heartbeat received"})
+    print(f"[HEARTBEAT/REGISTER] {hostname} - {ip}")
+    return jsonify({"ok": 1, "msg": "heartbeat/registered"})
 
 # =====================
 # SET INTERVAL + ON/OFF
