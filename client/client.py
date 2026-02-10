@@ -3,7 +3,6 @@ import socket, requests, time, ipaddress, subprocess, os, uuid
 PORT = 5000
 INTERVAL = 5
 UNIT_FILE = "unit.id"
-
 status_on = "OFF"
 server_ip = None
 
@@ -64,7 +63,8 @@ def scan_server():
 # ===== HEARTBEAT =====
 def heartbeat():
     try:
-        requests.post(f"http://{server_ip}:{PORT}/heartbeat", json={"unit_id":UNIT_ID}, timeout=2)
+        if server_ip:
+            requests.post(f"http://{server_ip}:{PORT}/heartbeat", json={"unit_id": UNIT_ID}, timeout=2)
     except:
         pass
 
@@ -75,7 +75,6 @@ def update_status():
         r = requests.get(f"http://{server_ip}:{PORT}/status/{UNIT_ID}", timeout=2)
         if not r.ok:
             return
-
         new_status = r.json().get("status", "OFF")
         if new_status != status_on:
             status_on = new_status
