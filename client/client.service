@@ -3,10 +3,12 @@ Description=NYILSRV Client
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/nyilsrv-client/client.py
+Type=simple
+ExecStart=/opt/nyilsrv-client/venv/bin/python /opt/nyilsrv-client/client.py
 Restart=always
-User=pi
 WorkingDirectory=/opt/nyilsrv-client
+User=root
+Environment=PATH=/opt/nyilsrv-client/venv/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=multi-user.target
