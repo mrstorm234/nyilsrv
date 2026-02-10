@@ -1,5 +1,24 @@
-Cara Install SERVER
-1️⃣ Clone Repository
+inggal copy–paste, langsung pakai
+
+# NyilSrv – Server & Client Rotasi Otomatis
+
+NyilSrv adalah sistem **Server–Client berbasis Linux** dengan mekanisme **rotasi otomatis**.
+Server bertugas sebagai pengendali utama, sedangkan client akan **bergantian aktif**
+sesuai waktu rotasi yang diatur melalui **Web Panel**.
+
+Sistem ini berjalan dalam **satu jaringan lokal** dan **tidak memerlukan setting IP manual**.
+
+---
+
+## 🚀 Cara Install SERVER
+
+Server adalah pusat kontrol yang:
+- Menyimpan dan mengatur daftar client
+- Mengatur rotasi client
+- Menyediakan Web Panel monitoring
+
+### 1️⃣ Clone Repository & Masuk Folder Server
+```bash
 git clone https://github.com/mrstorm234/nyilsrv.git
 cd nyilsrv/server
 
@@ -7,21 +26,23 @@ cd nyilsrv/server
 sudo bash install.sh
 
 
-Installer akan otomatis:
+Installer server akan otomatis:
 
-install dependency Python
+Install dependency Python
 
-setup systemd service
+Membuat systemd service server
 
-enable auto start saat boot
+Mengaktifkan auto start saat boot
 
-jalankan server
+Menjalankan server
 
 3️⃣ Cek Status Server
 systemctl status server
 
 
-Pastikan status active (running).
+Pastikan status:
+
+active (running)
 
 4️⃣ Akses Web Panel
 
@@ -30,13 +51,13 @@ Buka browser:
 http://IP_SERVER:5000
 
 
-Di web panel kamu bisa:
+Di Web Panel:
 
-lihat semua client
+Lihat semua client
 
-lihat client ACTIVE / WAITING / OFFLINE
+Status client: ACTIVE / WAITING / OFFLINE
 
-atur waktu rotasi:
+Atur waktu rotasi:
 
 25 menit
 
@@ -50,9 +71,11 @@ atur waktu rotasi:
 
 💻 Cara Install CLIENT
 
-Jalankan langkah ini di SETIAP MESIN CLIENT
+Client adalah mesin yang akan dikontrol server dan bergantian aktif.
 
-1️⃣ Clone Repository
+⚠️ Jalankan langkah ini di SETIAP MESIN CLIENT
+
+1️⃣ Clone Repository & Masuk Folder Client
 git clone https://github.com/mrstorm234/nyilsrv.git
 cd nyilsrv/client
 
@@ -62,25 +85,42 @@ sudo bash installer.sh
 
 Installer client akan otomatis:
 
-scan server di jaringan (tanpa set IP)
+Mencari server di jaringan
 
-register hostname & IP ke server
+Register hostname & IP ke server
 
-install systemd service
+Membuat systemd service client
 
-auto connect ke server
+Auto connect ke server
 
-auto start saat boot
+Auto start saat boot
 
 3️⃣ Cek Status Client
 systemctl status client
 
 
-Pastikan status active (running).
+Pastikan status:
 
-🔁 Sistem Rotasi Client
+active (running)
 
-Hanya 1 client aktif dalam satu waktu
+▶️ Cara Menjalankan / Menghentikan Service
+Menjalankan Server
+sudo systemctl start server
+
+Menjalankan Client
+sudo systemctl start client
+
+Menghentikan Service
+sudo systemctl stop server
+sudo systemctl stop client
+
+Restart Service
+sudo systemctl restart server
+sudo systemctl restart client
+
+🔁 Cara Kerja Rotasi Client
+
+Dalam satu waktu hanya 1 client aktif
 
 Client aktif:
 
@@ -88,15 +128,19 @@ NetworkManager ON
 
 earnapp RESTART
 
-Client lain otomatis:
+Client lain:
 
 earnapp STOP
 
-Setelah waktu habis (25m / 35m / 1–3 jam):
+Alur Rotasi:
 
-server pindah ke client berikutnya
+Server memilih 1 client sebagai ACTIVE
 
-proses berjalan loop otomatis
+Client berjalan sesuai waktu rotasi
+
+Setelah waktu habis, server pindah ke client berikutnya
+
+Proses berjalan loop otomatis
 
 🔄 Update Server & Client
 Update Server
@@ -112,15 +156,17 @@ cd client
 sudo bash installer.sh
 
 🧪 Troubleshooting
-Client tidak muncul di panel
+Client Tidak Muncul di Web Panel
 
 Pastikan satu jaringan dengan server
 
-Cek service client:
+Pastikan service client berjalan:
 
 systemctl status client
 
-Client OFFLINE
+Status Client OFFLINE
+
+Penyebab umum:
 
 Client mati / reboot
 
@@ -132,3 +178,18 @@ Service client tidak berjalan
 Service	Port
 Web Panel Server	5000
 Control / Heartbeat	6000
+✅ Catatan
+
+Jalankan sebagai root / sudo
+
+Buka firewall port 5000 dan 6000
+
+Sistem berjalan full otomatis
+
+
+Kalau mau versi:
+- **lebih singkat**
+- **bahasa awam**
+- **versi Inggris**
+
+bilang saja 👍
