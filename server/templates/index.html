@@ -9,8 +9,12 @@
             padding: 20px;
         }
 
-        h2 {
-            margin-top: 0;
+        .box {
+            background: white;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            box-shadow: 0 0 4px rgba(0,0,0,0.1);
         }
 
         table {
@@ -21,8 +25,7 @@
 
         th, td {
             border: 1px solid #ccc;
-            padding: 8px 10px;
-            text-align: left;
+            padding: 8px;
         }
 
         th {
@@ -37,19 +40,6 @@
         .OFFLINE {
             color: red;
             font-weight: bold;
-        }
-
-        .box {
-            background: white;
-            padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 6px;
-            box-shadow: 0 0 4px rgba(0,0,0,0.1);
-        }
-
-        button {
-            padding: 6px 12px;
-            cursor: pointer;
         }
     </style>
 </head>
@@ -68,9 +58,7 @@
         <button type="submit">Aktifkan</button>
     </form>
 
-    <p>
-        <small>Interval aktif: <b>{{ cfg.interval_seconds }} detik</b></small>
-    </p>
+    <p><small>Interval aktif: <b>{{ cfg.interval_seconds }} detik</b></small></p>
 </div>
 
 <div class="box">
@@ -91,15 +79,12 @@
             <td>{{ c.hostname }}</td>
             <td>{{ c.ip }}</td>
             <td class="{{ c.state }}">{{ c.state }}</td>
-            <td>
-                {{ ( (namespace(now=cycler)).now ) }}
-                {{ ( ( ( ( ( ( ( ( ( ( ( ( ( ) ) ) ) ) ) ) ) ) ) ) ) }}
-            </td>
+            <td>{{ c.last_seen_ago }} detik lalu</td>
         </tr>
         {% else %}
         <tr>
             <td colspan="5" style="text-align:center;">
-                Belum ada client terdaftar
+                Belum ada client
             </td>
         </tr>
         {% endfor %}
@@ -107,7 +92,6 @@
 </div>
 
 <script>
-    // auto refresh tiap 5 detik
     setTimeout(() => location.reload(), 5000);
 </script>
 
