@@ -1,163 +1,112 @@
-from flask import Flask, request, render_template, redirect, jsonify
-import json, time, os, socket, threading
+from flask import Flask, request, jsonify
+from datetime import datetime
+import socket
+import json
+import os
+import threading
 
 app = Flask(__name__)
 
-BASE = os.path.dirname(__file__)
-CLIENT_DB = os.path.join(BASE, "clients.json")
-CFG_DB = os.path.join(BASE, "config.json")
-
-SERVER_INFO = {
-    "role": "nyilsrv-server",
-    "hostname": socket.gethostname()
-}
-
-OFFLINE_AFTER = 30
+DATA_FILE = "clients.json"
 LOCK = threading.Lock()
+OFFLINE_THRESHOLD = 15  # detik
 
-# ---------------- utils ----------------
-
-def safe_load_json(path, default):
-    with LOCK:
-        try:
-            if not os.path.exists(path):
-                with open(path, "w") as f:
-                    json.dump(default, f, indent=2)
-                return default
-            with open(path) as f:
-                return json.load(f)
-        except Exception as e:
-            print("[JSON LOAD ERROR]", e)
-            return default
-
-def safe_save_json(path, data):
-    with LOCK:
-        tmp = path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, path)
-
+# =====================
+# HELPER JSON
+# =====================
 def load_clients():
-    return safe_load_json(CLIENT_DB, [])
+    if not os.path.exists(DATA_FILE):
+        return {}
+    with open(DATA_FILE, "r") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return {}
 
-def save_clients(d):
-    safe_save_json(CLIENT_DB, d)
+def save_clients(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
-def load_cfg():
-    return safe_load_json(CFG_DB, {"interval_seconds": 10})
+def now_ts():
+    return int(datetime.utcnow().timestamp())
 
-def save_cfg(d):
-    safe_save_json(CFG_DB, d)
-
-# --------------- routes ----------------
-
-@app.route("/")
-def index():
-    now = time.time()
-    clients = load_clients()
-
-    for c in clients:
-        last_seen = c.get("last_seen", 0)
-        delta = int(now - last_seen)
-
-        c["last_seen_ago"] = delta
-        c["state"] = "OFFLINE" if delta > OFFLINE_AFTER else "ONLINE"
-
-    save_clients(clients)
-
-    return render_template(
-        "index.html",
-        clients=clients,
-        cfg=load_cfg()
-    )
-
-@app.route("/ping")
+# =====================
+# PING (CLIENT -> SERVER)
+# =====================
+@app.route("/ping", methods=["GET", "POST"])
 def ping():
+    if request.method == "POST":
+        data = request.json or {}
+        hostname = data.get("hostname", "unknown")
+        ip = request.remote_addr
+
+        with LOCK:
+            clients = load_clients()
+            clients[hostname] = {
+                "hostname": hostname,
+                "ip": ip,
+                "last_seen": now_ts()
+            }
+            save_clients(clients)
+
+        return jsonify({
+            "ok": 1,
+            "server": "nyilsrv-server"
+        })
+
     return jsonify({
         "ok": 1,
-        "server": SERVER_INFO["role"],
-        "hostname": SERVER_INFO["hostname"]
+        "server": socket.gethostname()
     })
 
-@app.route("/set_interval", methods=["POST"])
-def set_interval():
-    cfg = load_cfg()
-    cfg["interval_seconds"] = int(request.form["seconds"])
-    save_cfg(cfg)
-    return redirect("/")
+# =====================
+# LIST CLIENTS
+# =====================
+@app.route("/clients", methods=["GET"])
+def list_clients():
+    with LOCK:
+        clients = load_clients()
 
-@app.route("/register", methods=["POST"])
-def register():
-    data = request.json or {}
-    hostname = data.get("hostname")
-    ip = data.get("ip")
+    now = now_ts()
+    result = []
 
-    if not hostname or not ip:
-        return {"ok": 0}, 400
+    for idx, (hostname, c) in enumerate(sorted(clients.items()), start=1):
+        last_seen = c.get("last_seen", 0)
+        delta = now - last_seen if last_seen else 999999
 
-    clients = load_clients()
+        status = "ONLINE" if delta <= OFFLINE_THRESHOLD else "OFFLINE"
 
-    for c in clients:
-        if c["hostname"] == hostname:
-            c.update({
-                "ip": ip,
-                "last_seen": time.time(),
-                "state": "ONLINE"
-            })
-            save_clients(clients)
-            return {"ok": 1}
+        last_seen_txt = (
+            f"{delta} detik lalu" if last_seen else "tidak pernah"
+        )
 
-    clients.append({
-        "id": len(clients) + 1,
-        "hostname": hostname,
-        "ip": ip,
-        "last_seen": time.time(),
-        "state": "ONLINE"
+        result.append({
+            "id": idx,
+            "hostname": hostname,
+            "ip": c.get("ip", "-"),
+            "status": status,
+            "last_seen": last_seen_txt
+        })
+
+    return jsonify(result)
+
+# =====================
+# ROOT
+# =====================
+@app.route("/")
+def index():
+    return jsonify({
+        "service": "NYILSRV Server",
+        "status": "RUNNING",
+        "clients": len(load_clients())
     })
 
-    save_clients(clients)
-    return {"ok": 1}
-
-@app.route("/heartbeat", methods=["POST"])
-def heartbeat():
-    data = request.json or {}
-    hostname = data.get("hostname")
-    ip = request.remote_addr
-
-    if not hostname:
-        return {"ok": 0}, 400
-
-    clients = load_clients()
-
-    for c in clients:
-        if c["hostname"] == hostname:
-            c.update({
-                "ip": ip,
-                "last_seen": time.time(),
-                "state": "ONLINE"
-            })
-            save_clients(clients)
-            return {"ok": 1}
-
-    # auto register fallback
-    clients.append({
-        "id": len(clients) + 1,
-        "hostname": hostname,
-        "ip": ip,
-        "last_seen": time.time(),
-        "state": "ONLINE"
-    })
-
-    save_clients(clients)
-    return {"ok": 1}
-
-# 🧯 global error handler
-@app.errorhandler(Exception)
-def handle_error(e):
-    print("[SERVER ERROR]", e)
-    return "Internal Server Error", 500
-
-# --------------- main ----------------
-
+# =====================
+# MAIN
+# =====================
 if __name__ == "__main__":
-    app.run("0.0.0.0", 5000, threaded=True)
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=False
+    )
