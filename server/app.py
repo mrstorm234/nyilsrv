@@ -1,135 +1,78 @@
-from flask import Flask, request, jsonify, render_template
-import json, os, time, threading
+from flask import Flask, request, jsonify, render_template, redirect
+import time, threading
 
 app = Flask(__name__)
-
-CLIENT_FILE = "clients.json"
-CONFIG_FILE = "config.json"
 LOCK = threading.Lock()
 
-DEFAULT_CONFIG = {
-    "enabled": True,
-    "interval": 1500,   # 25 menit
-    "active": ""
-}
+clients = {}
+ACTIVE_UNIT = None
 
-OFFLINE_TIMEOUT = 30  # detik
 
-# ---------- utils ----------
-def load(path, default):
-    if not os.path.exists(path):
-        return default
-    try:
-        return json.load(open(path))
-    except:
-        return default
-
-def save(path, data):
-    json.dump(data, open(path, "w"), indent=2)
-
-def now():
-    return int(time.time())
-
-# ---------- routes ----------
 @app.route("/")
 def index():
-    clients = load(CLIENT_FILE, [])
-    cfg = load(CONFIG_FILE, DEFAULT_CONFIG)
+    return render_template("index.html", clients=clients, active=ACTIVE_UNIT, now=time.time())
 
-    for c in clients:
-        c["state"] = "ONLINE" if now() - c["last_seen"] <= OFFLINE_TIMEOUT else "OFFLINE"
-        c["ago"] = now() - c["last_seen"]
-
-    return render_template("index.html", clients=clients, cfg=cfg)
 
 @app.route("/register", methods=["POST"])
 def register():
-    data = request.json or {}
-    hostname = data.get("hostname")
-    ip = data.get("ip") or request.remote_addr
-
-    if not hostname:
-        return jsonify(ok=False)
+    data = request.json
+    uid = data["unit_id"]
 
     with LOCK:
-        clients = load(CLIENT_FILE, [])
-        for c in clients:
-            if c["hostname"] == hostname:
-                c["ip"] = ip
-                c["last_seen"] = now()
-                save(CLIENT_FILE, clients)
-                return jsonify(ok=True)
+        if uid not in clients:
+            clients[uid] = {
+                "hostname": data.get("hostname"),
+                "ip": data.get("ip"),
+                "status": "OFF",
+                "last_seen": time.time()
+            }
+        else:
+            clients[uid]["ip"] = data.get("ip")
+            clients[uid]["last_seen"] = time.time()
 
-        clients.append({
-            "hostname": hostname,
-            "ip": ip,
-            "last_seen": now()
-        })
-        save(CLIENT_FILE, clients)
-
-    print("[REGISTER]", hostname, ip)
     return jsonify(ok=True)
+
 
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
-    data = request.json or {}
-    hostname = data.get("hostname")
-    if not hostname:
-        return jsonify(ok=False)
-
+    uid = request.json["unit_id"]
     with LOCK:
-        clients = load(CLIENT_FILE, [])
-        for c in clients:
-            if c["hostname"] == hostname:
-                c["last_seen"] = now()
-                save(CLIENT_FILE, clients)
-                return jsonify(ok=True)
+        if uid in clients:
+            clients[uid]["last_seen"] = time.time()
+    return jsonify(ok=True)
 
-    return jsonify(ok=False)
 
-@app.route("/status/<hostname>")
-def status(hostname):
-    cfg = load(CONFIG_FILE, DEFAULT_CONFIG)
-    if cfg["active"] == hostname:
-        return jsonify(status="ON")
-    return jsonify(status="OFF")
+@app.route("/status/<uid>")
+def status(uid):
+    with LOCK:
+        return jsonify(status=clients.get(uid, {}).get("status", "OFF"))
 
-@app.route("/set", methods=["POST"])
-def set_cfg():
-    cfg = load(CONFIG_FILE, DEFAULT_CONFIG)
-    cfg["enabled"] = "enabled" in request.form
-    cfg["interval"] = int(request.form.get("interval", 1500))
-    save(CONFIG_FILE, cfg)
-    return "OK <a href='/'>Back</a>"
 
-# ---------- scheduler ----------
-def rotate():
-    while True:
-        with LOCK:
-            cfg = load(CONFIG_FILE, DEFAULT_CONFIG)
-            if not cfg["enabled"]:
-                time.sleep(5)
-                continue
+@app.route("/set/<uid>/<state>")
+def set_state(uid, state):
+    global ACTIVE_UNIT
+    with LOCK:
+        for k in clients:
+            clients[k]["status"] = "OFF"
 
-            clients = load(CLIENT_FILE, [])
-            online = [c for c in clients if now() - c["last_seen"] <= OFFLINE_TIMEOUT]
+        if state == "ON":
+            clients[uid]["status"] = "ON"
+            ACTIVE_UNIT = uid
+        else:
+            ACTIVE_UNIT = None
 
-            if not online:
-                time.sleep(5)
-                continue
+    return redirect("/")
 
-            names = [c["hostname"] for c in online]
-            if cfg["active"] not in names:
-                cfg["active"] = names[0]
-            else:
-                i = names.index(cfg["active"])
-                cfg["active"] = names[(i + 1) % len(names)]
 
-            save(CONFIG_FILE, cfg)
+@app.route("/offline_check")
+def offline_check():
+    now = time.time()
+    with LOCK:
+        for uid in clients:
+            if now - clients[uid]["last_seen"] > 15:
+                clients[uid]["status"] = "OFF"
+    return "OK"
 
-        time.sleep(cfg["interval"])
 
-# ---------- main ----------
 if __name__ == "__main__":
-    threading.Thread(target=rotate, daemon=True).start()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)
