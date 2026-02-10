@@ -1,30 +1,52 @@
 #!/bin/bash
 set -e
 
-echo "[+] Installing NYILSRV Client"
+echo "===================================="
+echo " NYILSRV CLIENT INSTALLER"
+echo "===================================="
 
-BASE=/opt/nyilsrv-client
+# pastikan dijalankan sebagai root
+if [ "$EUID" -ne 0 ]; then
+  echo "[!] Jalankan sebagai root: sudo bash installer.sh"
+  exit 1
+fi
 
-sudo apt update
-sudo apt install -y python3 python3-venv curl
+# ambil direktori asli installer.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="/opt/nyilsrv-client"
 
-sudo mkdir -p $BASE
-sudo cp client.py $BASE/
+echo "[+] Script dir   : $SCRIPT_DIR"
+echo "[+] Install path : $BASE"
 
-cd $BASE
+echo "[+] Update system & install dependencies"
+apt update
+apt install -y python3 python3-venv curl
 
-echo "[+] Creating virtualenv"
-python3 -m venv venv
+echo "[+] Create install directory"
+mkdir -p "$BASE"
 
-echo "[+] Installing python deps"
-$BASE/venv/bin/pip install --upgrade pip
-$BASE/venv/bin/pip install requests
+echo "[+] Copy client files"
+cp "$SCRIPT_DIR/client.py" "$BASE/"
+cp "$SCRIPT_DIR/client.service" /etc/systemd/system/client.service
 
-echo "[+] Installing systemd service"
-sudo cp client.service /etc/systemd/system/
+echo "[+] Create virtual environment"
+python3 -m venv "$BASE/venv"
 
-sudo systemctl daemon-reload
-sudo systemctl enable client
-sudo systemctl restart client
+echo "[+] Install python dependencies"
+"$BASE/venv/bin/pip" install --upgrade pip
+"$BASE/venv/bin/pip" install requests
 
-echo "[+] NYILSRV Client installed successfully"
+echo "[+] Reload systemd"
+systemctl daemon-reload
+
+echo "[+] Enable & start client service"
+systemctl enable client
+systemctl restart client
+
+echo "===================================="
+echo " NYILSRV CLIENT INSTALLED SUCCESS"
+echo "===================================="
+
+echo "[i] Check status with:"
+echo "    systemctl status client"
+echo "    journalctl -u client -f"
