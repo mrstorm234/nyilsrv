@@ -3,8 +3,9 @@ Description=NYILSRV Server
 After=network.target
 
 [Service]
-WorkingDirectory=/root/nyilsrv/server
-ExecStart=/root/nyilsrv/server/venv/bin/python app.py
+Type=simple
+WorkingDirectory=/opt/nyilsrv
+ExecStart=/opt/nyilsrv/venv/bin/python app.py
 Restart=always
 User=root
 
